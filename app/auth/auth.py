@@ -4,31 +4,38 @@ from jose import jwt ,JWTError
 from fastapi import HTTPException, status
 from app.auth.dao import UserDAO
 from pydantic import EmailStr
-from app.config import settings
-# ----
+# from app.config import settings
+# from app.db import async_session_maker
 from itsdangerous import URLSafeTimedSerializer
 from fastapi_mail import FastMail, MessageSchema, ConnectionConfig
 
+
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# мусор который надо разобрать
+
+# ===========
+# сделать новые ключи и Убрать все в .env
 serializer = URLSafeTimedSerializer("8QQogqSjhgHz2mx4lYZweRZOkyfe0Pmc2Lf93VHeO1A=")
-rand_salt_key = '212cjn9XCY6lnVAX6uhTyo9bRm57gqD54ukrUN6cNTI='
-# conf = ConnectionConfig(
-#     MAIL_USERNAME="your_email@example.com",  # Ваш email для авторизации на SMTP-сервере
-#     MAIL_PASSWORD="your_password",  # Ваш пароль для авторизации на SMTP-сервере
-#     MAIL_FROM="your_email@example.com",  # Email адрес отправителя
-#     MAIL_PORT=587,  # Порт SMTP-сервера (для почты на Gmail обычно используется 587)
-#     MAIL_SERVER="smtp.example.com",  # SMTP-сервер (для Gmail это smtp.gmail.com)
-#     MAIL_FROM_NAME="Your Name",  # Имя отправителя
-#     MAIL_TLS=True,  # Используется ли TLS (для Gmail это True)
-#     MAIL_SSL=False,  # Используется ли SSL (для Gmail это False)
-#     USE_CREDENTIALS=True,  # Используются ли учетные данные для авторизации (обычно True)
-#     VALIDATE_CERTS=True,  # Проверять ли сертификаты SSL (обычно True)
-#     TEMPLATE_FOLDER='./templates'  # Путь к папке с шаблонами писем
-# )
-
-
+rand_salt_key_confir = '212cjn9XCY6lnVAX6uhT='
+rand_salt_key_recover = '212cjn9XCY6lnVAX6uhT='
+SECRET_KEY='yaZGZ6uADF5MvjgVq9E96P9taSXswbJYdILuXpvMF+s='
+ALGORITHM='HS256'
+conf = ConnectionConfig(
+    MAIL_USERNAME="egorkolen@yandex.ru",
+    MAIL_PASSWORD='hzifnyloidficrre',
+    MAIL_FROM="egorkolen@yandex.ru",
+    MAIL_PORT= 465,
+    MAIL_SERVER="smtp.yandex.ru",
+    MAIL_STARTTLS=False,
+    MAIL_SSL_TLS=True,
+    USE_CREDENTIALS=True,
+    VALIDATE_CERTS=False,
+)
+BASE_URL = 'localhost'
+ACCESS_TOKEN_EXPIRE_MINUTES = 30  # 30 минут
+REFRESH_TOKEN_EXPIRE_MINUTES = 10080  # 7 дней
+# ===========
 
 def get_password_hash(password):
     return pwd_context.hash(password)
@@ -40,30 +47,39 @@ def verify_password(plain_password, hashed_password):
 
 def create_access_token(data: dict):
     to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(minutes=3600)
+    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, 
-                             settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+                             SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-async def authenticate_user(email: EmailStr, password: str):
-    user = await UserDAO.find_one_or_none(email=email)
-    if not user and verify_password(password, user.password):
+def create_refresh_token(data: dict):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + timedelta(minutes=REFRESH_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    reencoded_jwt = jwt.encode(to_encode, 
+                             SECRET_KEY, algorithm=ALGORITHM)
+    return reencoded_jwt
+
+async def authenticate_user(username: str, password: str):
+    # async with async_session_maker() as session:
+    user = await UserDAO.find_one_or_none(username=username)
+    if not user or not verify_password(password, user.hashed_password):
         return None
     return user
-
+    
 # Sign up
-
-# Функции для создания токена подтверждения
+    
+# Функции для создания токена подтверждения email
 def create_confirmation_token(email: str):
-    return serializer.dumps(email, salt=rand_salt_key)
+    return serializer.dumps(email, salt=rand_salt_key_confir)
 
-# Функция для подтверждения токена
+# Функция для подтверждения токена email 
 def confirm_token(token: str, expiration: int = 3600):
     try:
-        email = serializer.loads(
+        confirmation_em = serializer.loads(
             token,
-            salt=rand_salt_key,
+            salt=rand_salt_key_confir,
             max_age=expiration
         )
     except:
@@ -71,56 +87,54 @@ def confirm_token(token: str, expiration: int = 3600):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Ссылка для подтверждения недействительна или устарела."
         )
-    return email
-
-# # Функция для подтверждения токена
-# def confirm_token(token: str, expiration: int = 3600):
-#     try:
-#         email = serializer.loads(
-#             token,
-#             salt=settings.SECRET_SALT,
-#             max_age=expiration
-#         )
-#     except (BadSignature, SignatureExpired):
-#         return None
-#     return email
+    return confirmation_em
 
 
 # Функция для отправки email с подтверждением
-# async def send_confirmation_email(email: str, token: str):
-#     message = MessageSchema(
-#         subject="Подтверждение регистрации",
-#         recipients=[email],
-#         body=f"Для подтверждения регистрации перейдите по ссылке: {settings.BASE_URL}/auth/confirm/{token}",
-#     )
-#     fm = FastMail(conf)
-#     await fm.send_message(message)
+async def send_confirmation_email(email: str, token: str):
+    message = MessageSchema(
+        subject="Подтверждение регистрации",
+        body=f"Для подтверждения регистрации перейдите по ссылке: {BASE_URL}/auth/confirm/{token}",
+        recipients=[email],
+        subtype="html" 
+    )
+    fm = FastMail(conf)
+    await fm.send_message(message)
 
 
 # Password Recovery
 
-    # Функция для создания токена восстановления пароля
+# Функция для создания токена восстановления пароля
 def create_password_reset_token(email: str):
-    return serializer.dumps(email, salt=rand_salt_key)
+    return serializer.dumps(email, salt=rand_salt_key_recover)
 
 # Функция для подтверждения токена восстановления пароля
 def confirm_password_reset_token(token: str, expiration: int = 3600):
     try:
-        email = serializer.loads(
+        confirmation_ps = serializer.loads(
             token,
-            salt=rand_salt_key,
+            salt=rand_salt_key_recover,
             max_age=expiration
         )
     except:
         return None
-    return email
+    return confirmation_ps
 
 # Функция для отправки email с ссылкой на восстановление пароля
-# async def send_password_reset_email(email: str, token: str):
-#     message = MessageSchema(
-#         subject="Восстановление пароля",
-#         recipients=[email],
-#         body=f"Для восстановления пароля перейдите по ссылке: {settings.BASE_URL}/auth/reset-password/{token}",
-#     )
-#     fm = FastMail(conf)
-#     await fm.send_message(message)
+async def send_password_reset_email(email: str, token: str):
+    html_content = f"""
+    <html>
+    <body>
+        <p>Для восстановления пароля перейдите по ссылке:</p>
+        <a href="{BASE_URL}/auth/reset-password/{token}">Восстановить пароль</a>
+    </body>
+    </html>
+    """
+    message = MessageSchema(
+        subject="Восстановление пароля",
+        recipients=[email],
+        body=html_content,
+        subtype="html" 
+    )
+    fm = FastMail(conf)
+    await fm.send_message(message)

@@ -1,25 +1,8 @@
-from pydantic_settings import BaseSettings
-from pydantic import model_validator, root_validator
+from dotenv import load_dotenv
 import os
 
-class Settings(BaseSettings):
-    DB_HOST: str 
-    DB_PORT: int
-    DB_USER: str 
-    DB_PASS: str 
-    DB_NAME: str 
-    
-    @property
-    def DATABASE_URL(self):
-        return f'postgresql+asyncpg://{self.DB_USER}:{self.DB_PASS}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}'
+load_dotenv()
 
-    # SECRET_KEY: str
-    # ALGORITHM: str
-    
-
-    class Config:
-        env_file = ".env"
-
-settings = Settings()
+database_url = os.getenv("DATABASE_URL")
 
 
